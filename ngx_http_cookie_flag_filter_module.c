@@ -12,6 +12,7 @@ typedef struct {
     ngx_flag_t samesite;
     ngx_flag_t samesite_lax;
     ngx_flag_t samesite_strict;
+    ngx_array_t *var_names;
 } ngx_http_cookie_t;
 
 typedef struct {
@@ -114,6 +115,7 @@ ngx_http_cookie_flag_filter_cmd(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ngx_http_cookie_t *cookie, tmp;
     ngx_str_t *value;
     ngx_uint_t i, j;
+    ngx_str_t *var_name;
 
     value = cf->args->elts;
 
@@ -165,6 +167,10 @@ ngx_http_cookie_flag_filter_cmd(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     cookie->samesite = 0;
     cookie->samesite_lax = 0;
     cookie->samesite_strict = 0;
+    cookie->var_names = ngx_array_create(cf->pool, 1, sizeof(ngx_str_t));
+    if (cookie->var_names == NULL) {
+        return NGX_CONF_ERROR;
+    }
 
     // normalize and check 2nd and 3rd parameters
     for (i = 2; i < cf->args->nelts; i++) {
@@ -178,6 +184,13 @@ ngx_http_cookie_flag_filter_cmd(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             cookie->samesite_lax = 1;
         } else if (ngx_strncasecmp(value[i].data, (u_char *) "samesite=strict", 15) == 0 && value[i].len == 15) {
             cookie->samesite_strict = 1;
+        } else if (ngx_strncasecmp(value[i].data, (u_char *) "$", 1) == 0 && value[i].len > 1) {
+            var_name = ngx_array_push(cookie->var_names);
+            if (var_name == NULL) {
+                return NULL;
+            }
+            var_name->data = value[i].data + 1;
+            var_name->len = value[i].len - 1;
         } else {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "The parameter value \"%V\" is incorrect", &value[i]);
             return NGX_CONF_ERROR;
@@ -236,6 +249,8 @@ static ngx_int_t
 ngx_http_cookie_flag_filter_append(ngx_http_request_t *r, ngx_http_cookie_t *cookie, ngx_table_elt_t *header)
 {
     ngx_str_t tmp;
+    ngx_str_t *var_name;
+    ngx_uint_t i;
 
     if (cookie->httponly == 1 && ngx_strcasestrn(header->value.data, "; HttpOnly", 10 - 1) == NULL) {
         tmp.data = ngx_pnalloc(r->pool, header->value.len + sizeof("; HttpOnly") - 1);
@@ -287,6 +302,21 @@ ngx_http_cookie_flag_filter_append(ngx_http_request_t *r, ngx_http_cookie_t *coo
         header->value.len = tmp.len;
     }
 
+    var_name = cookie->var_names->elts;
+    for (i = 0; i < cookie->var_names->nelts; i++) {
+        ngx_uint_t key = ngx_hash_key(var_name[i].data, var_name[i].len);
+        ngx_http_variable_value_t *var_value = ngx_http_get_variable(r, &var_name[i], key);
+        if (var_value && !var_value->not_found && var_value->valid && var_value->len != 0) {
+            tmp.data = ngx_pnalloc(r->pool, header->value.len + 2 + var_value->len);
+            if (tmp.data == NULL) {
+                return NGX_ERROR;
+            }
+            tmp.len = ngx_sprintf(tmp.data, "%V; %v", &header->value, var_value) - tmp.data;
+            header->value.data = tmp.data;
+            header->value.len = tmp.len;
+        }
+    }
+
     return NGX_OK;
 }
 
@@ -326,7 +356,7 @@ ngx_http_cookie_flag_filter_handler(ngx_http_request_t *r)
             i = 0;
         }
 
-        if (ngx_strncasecmp(header[i].key.data, (u_char *) "set-cookie", 10) == 0) {
+        if (ngx_strncasecmp(header[i].key.data, (u_char *) "set-cookie", 10) == 0 && header[i].value.len != 0) {
             ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "filter http_cookie_flag - before: \"%V: %V\"", &header[i].key, &header[i].value);
 
             // for each security cookie we check whether preset it within Set-Cookie value. If not then we append.

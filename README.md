@@ -38,6 +38,8 @@ location / {
     set_cookie_flag * HttpOnly;
     set_cookie_flag SessionID SameSite=Lax secure;
     set_cookie_flag SiteToken SameSite=Strict;
+    set $cookie_flag SameSite;
+    set_cookie_flag * $cookie_flag;
 }
 ```
 
@@ -52,7 +54,7 @@ It is possible to set a default value using symbol "*". In this case flags will 
 
 -| -
 --- | ---
-**Syntax**  | **set_cookie_flag** \<cookie_name\|*\> [HttpOnly] [secure] [SameSite\|SameSite=[Lax\|Strict]];
+**Syntax**  | **set_cookie_flag** \<cookie_name\|*\> [HttpOnly] [secure] [SameSite\|SameSite=[Lax\|Strict]] [$variable];
 **Default** | -
 **Context** | server, location
 

@@ -252,7 +252,7 @@ ngx_http_cookie_flag_filter_append(ngx_http_request_t *r, ngx_http_cookie_t *coo
     ngx_str_t *var_name;
     ngx_uint_t i;
 
-    if (cookie->httponly == 1 && ngx_strcasestrn(header->value.data, "; HttpOnly", 10 - 1) == NULL) {
+    if (cookie->httponly == 1 && ngx_strlcasestrn(header->value.data, header->value.data + header->value.len, (u_char*)"; HttpOnly", 10 - 1) == NULL) {
         tmp.data = ngx_pnalloc(r->pool, header->value.len + sizeof("; HttpOnly") - 1);
         if (tmp.data == NULL) {
             return NGX_ERROR;
@@ -262,7 +262,7 @@ ngx_http_cookie_flag_filter_append(ngx_http_request_t *r, ngx_http_cookie_t *coo
         header->value.len = tmp.len;
     }
 
-    if (cookie->secure == 1 && ngx_strcasestrn(header->value.data, "; secure", 8 - 1) == NULL) {
+    if (cookie->secure == 1 && ngx_strlcasestrn(header->value.data, header->value.data + header->value.len, (u_char*)"; secure", 8 - 1) == NULL) {
         tmp.data = ngx_pnalloc(r->pool, header->value.len + sizeof("; secure") - 1);
         if (tmp.data == NULL) {
             return NGX_ERROR;
@@ -272,7 +272,7 @@ ngx_http_cookie_flag_filter_append(ngx_http_request_t *r, ngx_http_cookie_t *coo
         header->value.len = tmp.len;
     }
 
-    if (cookie->samesite == 1 && ngx_strcasestrn(header->value.data, "; SameSite", 10 - 1) == NULL) {
+    if (cookie->samesite == 1 && ngx_strlcasestrn(header->value.data, header->value.data + header->value.len, (u_char*)"; SameSite", 10 - 1) == NULL) {
         tmp.data = ngx_pnalloc(r->pool, header->value.len + sizeof("; SameSite") - 1);
         if (tmp.data == NULL) {
             return NGX_ERROR;
@@ -282,7 +282,7 @@ ngx_http_cookie_flag_filter_append(ngx_http_request_t *r, ngx_http_cookie_t *coo
         header->value.len = tmp.len;
     }
 
-    if (cookie->samesite_lax == 1 && ngx_strcasestrn(header->value.data, "; SameSite=Lax", 14 - 1) == NULL) {
+    if (cookie->samesite_lax == 1 && ngx_strlcasestrn(header->value.data, header->value.data + header->value.len, (u_char*)"; SameSite=Lax", 14 - 1) == NULL) {
         tmp.data = ngx_pnalloc(r->pool, header->value.len + sizeof("; SameSite=Lax") - 1);
         if (tmp.data == NULL) {
             return NGX_ERROR;
@@ -292,7 +292,7 @@ ngx_http_cookie_flag_filter_append(ngx_http_request_t *r, ngx_http_cookie_t *coo
         header->value.len = tmp.len;
     }
 
-    if (cookie->samesite_strict == 1 && ngx_strcasestrn(header->value.data, "; SameSite=Strict", 17 - 1) == NULL) {
+    if (cookie->samesite_strict == 1 && ngx_strlcasestrn(header->value.data, header->value.data + header->value.len, (u_char*)"; SameSite=Strict", 17 - 1) == NULL) {
         tmp.data = ngx_pnalloc(r->pool, header->value.len + sizeof("; SameSite=Strict") - 1);
         if (tmp.data == NULL) {
             return NGX_ERROR;
@@ -307,13 +307,27 @@ ngx_http_cookie_flag_filter_append(ngx_http_request_t *r, ngx_http_cookie_t *coo
         ngx_uint_t key = ngx_hash_key(var_name[i].data, var_name[i].len);
         ngx_http_variable_value_t *var_value = ngx_http_get_variable(r, &var_name[i], key);
         if (var_value && !var_value->not_found && var_value->valid && var_value->len != 0) {
-            tmp.data = ngx_pnalloc(r->pool, header->value.len + 2 + var_value->len);
-            if (tmp.data == NULL) {
+
+            ngx_str_t separator = ngx_string("; ");
+
+            u_char *attr_value = ngx_pnalloc(r->pool, separator.len + var_value->len);
+            if (attr_value == NULL) {
                 return NGX_ERROR;
             }
-            tmp.len = ngx_sprintf(tmp.data, "%V; %v", &header->value, var_value) - tmp.data;
-            header->value.data = tmp.data;
-            header->value.len = tmp.len;
+            u_char *p = attr_value;
+            p = ngx_copy(p, separator.data, separator.len);
+            p = ngx_copy(p, var_value->data, var_value->len);
+            size_t attr_value_len = p - attr_value;
+
+            if (ngx_strlcasestrn(header->value.data, header->value.data + header->value.len, attr_value, attr_value_len - 1) == NULL) {
+                tmp.data = ngx_pnalloc(r->pool, header->value.len + attr_value_len);
+                if (tmp.data == NULL) {
+                    return NGX_ERROR;
+                }
+                tmp.len = ngx_sprintf(tmp.data, "%V%*s", &header->value, attr_value_len, attr_value) - tmp.data;
+                header->value.data = tmp.data;
+                header->value.len = tmp.len;
+            }
         }
     }
 
